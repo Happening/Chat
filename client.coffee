@@ -102,6 +102,7 @@ exports.render = !->
 						_boxShadow: '0 2px 0 rgba(0,0,0,.1)'
 						textAlign: 'left'
 						background: '#fff'
+						_userSelect: 'text'
 
 						#Dom.onTap
 						#	longTap: !->

@@ -7,7 +7,9 @@ exports.client_typingSub = (cb) !->
 	cb.subscribe 'typing'
 
 exports.client_typing = (typing) !->
-	Subscription.push 'typing', Plugin.userId(), if typing then true else null
+	patch = {}
+	patch[Plugin.userId()] = if typing then true else null
+	Subscription.push 'typing', patch
 
 exports.client_msg = (text) !->
 
