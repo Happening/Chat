@@ -1,14 +1,14 @@
 Db = require 'db'
 Dom = require 'dom'
 Form = require 'form'
+Loglist = require 'loglist'
 Obs = require 'obs'
 Page = require 'page'
 Photo = require 'photo'
 Plugin = require 'plugin'
 Server = require 'server'
 Time = require 'time'
-Widgets = require 'widgets'
-Loglist = require 'loglist'
+Ui = require 'ui'
 {tr} = require 'i18n'
 
 exports.render = !->
@@ -19,19 +19,19 @@ exports.render = !->
 	myUserId = Plugin.userId()
 	happeningId = Plugin.groupId()
 
-	firstV = Obs.value Math.max(1, ((shared '#maxId')||0)-10)
+	firstV = Obs.create Math.max(1, (shared.peek('maxId')||0)-10)
 
 	screenE = Dom.get()
 	Dom.div !->
-		if firstV()==1
+		if firstV.get()==1
 			Dom.style display: 'none'
 			return
 		Dom.style
 			padding: '4px'
 			textAlign: 'center'
 
-		Widgets.button tr("Earlier messages"), !->
-			firstV Math.max(1, Obs.peek(firstV)-10)
+		Ui.button tr("Earlier messages"), !->
+			firstV.modify (v) -> Math.max(1, (v||0)-10)
 			if !Plugin.agent().ios # on ios, this results in content-not-rendered byg
 				prevHeight = screenE.prop('scrollHeight')
 				Obs.onStable !->
@@ -39,17 +39,17 @@ exports.render = !->
 					# does not account for case when contentHeight < scrollHeight
 					Page.scroll Page.scroll() + delta
 
-	Loglist.render firstV, (shared "&maxId"), (num) !->
+	Loglist.render firstV, shared.ref("maxId"), (num) !->
 		Dom.div !->
-			msg = (shared "#{0|num/100} #{num%100}")
+			msg = shared.ref(0|num/100, num%100)
 			if !msg
 				return
+			dbg.msg = msg
 
-			memberId = (msg 'by')
+			memberId = msg.get('by')
 			name = Plugin.userName memberId
-			avatar = Plugin.userAvatar memberId
 
-			type = (msg 'type')
+			type = msg.get('type')
 			if type in [10,11,12]
 				Dom.style
 					textAlign: 'center'
@@ -81,30 +81,16 @@ exports.render = !->
 				if memberId is myUserId
 					Dom.style textAlign: 'right'
 				
-				text = (msg 'text')
-				Dom.div !->
-					Dom.style
-						position: 'absolute'
-						top: '3px'
-						width: '40px'
-						height: '40px'
-						backgroundSize: 'cover'
-						backgroundPosition: '50% 50%'
-						borderRadius: '20px'
+				text = msg.get('text')
+				Ui.avatar Plugin.userAvatar(memberId), !->
 					if memberId is myUserId
 						Dom.style right: '4px'
 					else
 						Dom.style left: '4px'
-					if avatar
-						Dom.style
-							backgroundImage: "url(#{Photo.url(avatar)})"
-							_boxShadow: '0 0 3px rgba(255,255,255,1)'
-					else
-						Dom.style
-							backgroundImage: "url(#{Plugin.resourceUri('silhouette-aaa.png')})"
-							width: '36px'
-							height: '36px'
-							border: 'solid 2px #aaa'
+					Dom.style
+						position: 'absolute'
+						top: '3px'
+						margin: 0
 	
 				Dom.div !->
 					Dom.style
@@ -122,7 +108,7 @@ exports.render = !->
 						#		Form.toClipboard text
 						#		require('toast').show tr("Copied to clipboard")
 
-					Dom.text text
+					Dom.brText text
 
 					Dom.div !->
 						Dom.style
@@ -131,18 +117,18 @@ exports.render = !->
 							color: '#aaa'
 							padding: '2px 0 0'
 						Dom.text name
-						Dom.text " - "
-						if  time = (msg 'time')
+						Dom.text " • "
+						if  time = msg.get('time')
 							Time.deltaText time, 'short'
 						else
 							Dom.text tr("sending")
 							renderDots()
 
-	typingSub = Obs.hash()
-	Server.send "typingSub", typingSub
+	typingSub = Obs.create {}
+	Server.send "typingSub", (delta) !-> typingSub.patch delta
 	Obs.observe !->
 		users = []
-		for userId of (typingSub '*')
+		for userId of typingSub.get()
 			if +userId isnt Plugin.userId()
 				users.push Plugin.userName(userId)
 		if users.length
@@ -159,8 +145,8 @@ exports.render = !->
 				renderDots()
 
 	Obs.observe !->
-		(shared "maxId")
-		(typingSub '*')
+		shared.get("maxId")
+		typingSub.get()
 		#if Page.nearBottom()
 		Page.scroll('down', isRendered)
 	isRendered = true
@@ -176,9 +162,11 @@ exports.render = !->
 			log 'send', inputE.value(), inputE
 			if msg = inputE.value()
 				Server.sync 'msg', msg, !->
-					id = 1+(shared "#maxId")
-					(shared "#{0|id/100} #{id%100}", {time:0,by:Plugin.userId(),text:msg})
-					(shared "maxId", id)
+					id = shared.modify "maxId", (v) -> (v||0)+1
+					shared.set 0|id/100, id%100,
+						time: 0
+						by: Plugin.userId()
+						text: msg
 				Server.send 'typing', isTyping=false
 				inputE.value ""
 
@@ -194,9 +182,9 @@ exports.render = !->
 			inputE = Form.text
 				simple: true
 				autogrow: true
-				value: (Db.local "#draft")
+				value: Db.local.peek("draft")
 				onReturn: (value,evt) !->
-					if !Plugin.agent().ios
+					if !Plugin.agent().ios && !evt.prop('shiftKey')
 						evt.kill true, true
 						send()
 				inScope: !->
@@ -218,7 +206,7 @@ exports.render = !->
 
 					Obs.onClean !->
 						value = inputE.value()
-						(Db.local 'draft', value||null)
+						Db.local.set 'draft', value||null
 						if value
 							Server.send 'typing', isTyping=false
 
@@ -243,9 +231,13 @@ exports.render = !->
 
 dots = ['.', '..', '...']
 renderDots = !->
-	i = Obs.value(0)
+	i = Obs.create 0
 	Obs.observe !->
-		Dom.text dots[i()]
+		Dom.text dots[i.get()]
+		Dom.span !->
+			Dom.style
+				color: 'transparent'
+			Dom.text dots[2-i.get()]
 	Obs.interval 500, !->
-		i (i()+1)%dots.length
+		i.modify (v) -> (v+1)%dots.length
 

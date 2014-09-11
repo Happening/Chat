@@ -1,6 +1,6 @@
-Plugin = require 'plugin'
 Db = require 'db'
 Event = require 'event'
+Plugin = require 'plugin'
 Subscription = require 'subscription'
 
 exports.client_typingSub = (cb) !->
@@ -16,14 +16,9 @@ exports.client_msg = (text) !->
 		time: 0|(new Date()/1000)
 		by: Plugin.userId()
 
-	maxId = 1 + (0|(Db.shared 'maxId'))
-
-	data = {maxId}
-	groupData = {}
-	groupData[maxId%100] = msg
-	data[0|maxId/100] = groupData
-
-	Db.shared data
+	id = Db.shared.modify 'maxId', (v) -> (v||0)+1
+	log "#{id} / #{0|id/100} #{id%100}"
+	Db.shared.set 0|id/100, id%100, msg
 
 	name = Plugin.userName()
 
