@@ -109,7 +109,7 @@ exports.render = !->
 						#		Form.toClipboard text
 						#		require('toast').show tr("Copied to clipboard")
 
-					Dom.brText text
+					Dom.userText text
 
 					Dom.div !->
 						Dom.style
@@ -222,7 +222,7 @@ exports.render = !->
 				_boxAlign: 'center'
 				_boxPack: 'center'
 				fontWeight: 'bold'
-				color: '#004E63'
+				color: Plugin.colors().highlight
 
 			Dom.text tr("Send")
 			Dom.onTap
