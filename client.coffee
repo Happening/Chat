@@ -19,7 +19,12 @@ exports.render = !->
 	myUserId = Plugin.userId()
 	happeningId = Plugin.groupId()
 
-	firstV = Obs.create Math.max(1, (shared.peek('maxId')||0)-10)
+	if fv = Page.state.get('_firstV')
+		firstV = Obs.create(fv)
+	else
+		msgAmount = Math.max(Math.round(Dom.viewport.peek('height')/50), 10)
+			# show at least 10 messages, but more when we have a large vertical viewport
+		firstV = Obs.create Math.max(1, (shared.peek('maxId')||0)-msgAmount)
 
 	screenE = Dom.get()
 	Dom.div !->
@@ -31,13 +36,22 @@ exports.render = !->
 			textAlign: 'center'
 
 		Ui.button tr("Earlier messages"), !->
-			firstV.modify (v) -> Math.max(1, (v||0)-10)
+			nfv = firstV.modify (v) -> Math.max(1, (v||0)-10)
+			Page.state.set('_firstV', nfv)
 			if !Plugin.agent().ios # on ios, this results in content-not-rendered byg
 				prevHeight = screenE.prop('scrollHeight')
 				Obs.onStable !->
 					delta = screenE.prop('scrollHeight') - prevHeight
 					# does not account for case when contentHeight < scrollHeight
 					Page.scroll Page.scroll() + delta
+
+	wasNearBottom = true
+		# Observers are always called in order: update wasNearBottom flag before
+		# new messages are inserted. After insertion, a similar observer uses the
+		# flag to scroll down
+	Obs.observe !->
+		shared.get('maxId')
+		wasNearBottom = Page.nearBottom()
 
 	Loglist.render firstV, shared.ref("maxId"), (num) !->
 		Dom.div !->
@@ -125,9 +139,11 @@ exports.render = !->
 							Dom.text tr("sending")
 							renderDots()
 
+
 	typingSub = Obs.create {}
-	Server.send "typingSub", (delta) !-> typingSub.patch delta
+	Server.send 'typingSub', (delta) !-> typingSub.patch delta
 	Obs.observe !->
+		wasNearBottom2 = Page.nearBottom()
 		users = []
 		for userId of typingSub.get()
 			if +userId isnt Plugin.userId()
@@ -144,12 +160,22 @@ exports.render = !->
 				else
 					Dom.text tr(" are typing")
 				renderDots()
+			if wasNearBottom2
+				Page.scroll 'down', true
 
 	Obs.observe !->
-		shared.get("maxId")
-		typingSub.get()
-		#if Page.nearBottom()
-		Page.scroll('down', isRendered)
+		mid = shared.get('maxId')
+		if !isRendered || wasNearBottom
+			Page.scroll 'down', isRendered # no scroll-animation on first render
+		else if +shared.peek(0|mid/100, mid%100, 'by') != Plugin.userId()
+			require('toast').show tr("Scroll for new message")
+
+	###
+	Dom._listen Dom._get().parentNode, 'scroll', !->
+		if Page.nearBottom()
+			require('toast').clear()
+	###
+
 	isRendered = true
 
 	Page.setFooter !->
