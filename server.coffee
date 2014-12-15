@@ -2,6 +2,7 @@ Db = require 'db'
 Event = require 'event'
 Plugin = require 'plugin'
 Subscription = require 'subscription'
+{tr} = require 'i18n'
 
 exports.client_typingSub = (cb) !->
 	cb.subscribe 'typing'
@@ -12,19 +13,22 @@ exports.client_typing = (typing) !->
 	Subscription.push 'typing', patch
 
 exports.client_msg = (text) !->
+	post {text}, text
 
-	msg =
-		text: text
-		time: 0|(new Date()/1000)
-		by: Plugin.userId()
+post = (msg, text, unit=tr('msg')) !->
+	msg.time = 0|(new Date()/1000)
+	msg.by = Plugin.userId()
 
 	id = Db.shared.modify 'maxId', (v) -> (v||0)+1
 	log "#{id} / #{0|id/100} #{id%100}"
 	Db.shared.set 0|id/100, id%100, msg
 
 	name = Plugin.userName()
-
 	Event.create
-		unit: 'msg'
+		unit: unit
 		text: "#{name}: #{text}"
 		read: [Plugin.userId()]
+
+exports.onPhoto = (info) !->
+	post {photo: info.key}, tr('photo'), tr('photo')
+

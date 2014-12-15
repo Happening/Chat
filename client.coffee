@@ -1,6 +1,7 @@
 Db = require 'db'
 Dom = require 'dom'
 Form = require 'form'
+Icon = require 'icon'
 Loglist = require 'loglist'
 Obs = require 'obs'
 Page = require 'page'
@@ -17,9 +18,8 @@ exports.render = !->
 
 	shared = Db.shared
 	myUserId = Plugin.userId()
-	happeningId = Plugin.groupId()
 
-	if fv = Page.state.get('_firstV')
+	if fv = Page.state.get('firstV')
 		firstV = Obs.create(fv)
 	else
 		msgAmount = Math.max(Math.round(Dom.viewport.peek('height')/50), 10)
@@ -37,8 +37,8 @@ exports.render = !->
 
 		Ui.button tr("Earlier messages"), !->
 			nfv = firstV.modify (v) -> Math.max(1, (v||0)-10)
-			Page.state.set('_firstV', nfv)
-			if !Plugin.agent().ios # on ios, this results in content-not-rendered byg
+			Page.state.set('firstV', nfv)
+			if !Plugin.agent().ios # on ios, this results in content-not-rendered bug
 				prevHeight = screenE.prop('scrollHeight')
 				Obs.onStable !->
 					delta = screenE.prop('scrollHeight') - prevHeight
@@ -94,6 +94,8 @@ exports.render = !->
 
 				if memberId is myUserId
 					Dom.style textAlign: 'right'
+				else
+					Dom.style textAlign: 'left'
 				
 				text = msg.get('text')
 				Ui.avatar Plugin.userAvatar(memberId), !->
@@ -123,7 +125,29 @@ exports.render = !->
 						#		Form.toClipboard text
 						#		require('toast').show tr("Copied to clipboard")
 
-					Dom.userText text
+					if text
+						Dom.userText text
+					else if photoKey = msg.get('photo')
+						Dom.div !->
+							Dom.style
+								width: '120px'
+								height: '120px'
+								backgroundSize: 'cover'
+								backgroundImage: Photo.css(photoKey, 200)
+							Dom.onTap !->
+								Page.nav !->
+									Dom.style
+										padding: 0
+										backgroundColor: '#444'
+									Dom.div !->
+										Dom.style
+											width: '100%'
+											backgroundImage: Photo.css(photoKey, 800)
+											backgroundPosition: '50% 50%'
+											backgroundRepeat: 'no-repeat'
+											backgroundSize: 'contain'
+											paddingTop: 0
+											height: '100%'
 
 					Dom.div !->
 						Dom.style
@@ -185,6 +209,9 @@ exports.render = !->
 
 		inputE = false
 		isTyping = false
+		initValue = Db.local.peek("draft") || ''
+		emptyO = Obs.create(initValue=='')
+
 		send = !->
 			log 'send', inputE.value(), inputE
 			if msg = inputE.value()
@@ -195,6 +222,7 @@ exports.render = !->
 						by: Plugin.userId()
 						text: msg
 				Server.send 'typing', isTyping=false
+				emptyO.set true
 				inputE.value ""
 
 		Dom.div !->
@@ -203,13 +231,13 @@ exports.render = !->
 				background: '#fff'
 				border: 'solid 1px #aaa'
 				borderRadius: '6px'
-				margin: '6px 65px 6px 6px'
+				margin: '6px 60px 6px 6px'
 				padding: '4px 2px'
 
 			inputE = Form.text
 				simple: true
 				autogrow: true
-				value: Db.local.peek("draft")
+				value: initValue
 				onReturn: (value,evt) !->
 					if !Plugin.agent().ios && !evt.prop('shiftKey')
 						evt.kill true, true
@@ -228,6 +256,7 @@ exports.render = !->
 					Dom.prop 'rows', 1
 					Dom.on 'input', !->
 						value = inputE.value()
+						emptyO.set(value=='')
 						if (value isnt '') != isTyping
 							Server.send 'typing', isTyping=(value isnt '')
 
@@ -237,23 +266,24 @@ exports.render = !->
 						if value
 							Server.send 'typing', isTyping=false
 
-		Dom.div !->
-			Dom.style
-				position: 'absolute'
-				bottom: 0
-				right: 0
-				top: 0
-				width: '60px'
-				display_: 'box'
-				_boxAlign: 'center'
-				_boxPack: 'center'
-				fontWeight: 'bold'
-				color: Plugin.colors().highlight
-
-			Dom.text tr("Send")
-			Dom.onTap
-				noBlur: true
-				cb: send
+		Obs.observe !->
+			empty = emptyO.get()
+			Icon.render
+				style:
+					position: 'absolute'
+					padding: "10px"
+					bottom: 0
+					right: 0
+				color: if empty then '#555' else Plugin.colors().highlight
+				size: 36
+				data: if empty then 'camera' else 'send-button'
+				onTap:
+					noBlur: true
+					cb: !->
+						if empty
+							Photo.pick()
+						else
+							send()
 
 
 dots = ['.', '..', '...']
