@@ -130,24 +130,67 @@ exports.render = !->
 					else if photoKey = msg.get('photo')
 						Dom.div !->
 							Dom.style
+								position: 'relative'
+								margin: '2px 0'
 								width: '120px'
 								height: '120px'
 								backgroundSize: 'cover'
 								backgroundImage: Photo.css(photoKey, 200)
-							Dom.onTap !->
-								Page.nav !->
-									Dom.style
-										padding: 0
-										backgroundColor: '#444'
-									Dom.div !->
+							Dom.div !->
+								Dom.style width: '100%', height: '100%'
+								Dom.onTap !->
+									Page.nav !->
+										Page.setTitle tr("Photo")
+										Page.setSubTitle tr("added by %1", name)
+										opts = []
+										if Photo.share
+											opts.push
+												label: tr('Share')
+												icon: 'share'
+												action: !-> Photo.share photoKey
+										if Photo.download
+											opts.push
+												label: tr('Download')
+												icon: 'boxdown'
+												action: !-> Photo.download photoKey
+										if memberId is Plugin.userId() or Plugin.userIsAdmin()
+											opts.push
+												label: tr('Remove')
+												icon: 'trash'
+												action: !->
+													require('modal').confirm null, tr("Remove photo?"), !->
+														Server.sync 'removePhoto', num, !->
+															msg.set('photo', '')
+														Page.back()
+
+										Page.setActions opts
+
 										Dom.style
-											width: '100%'
-											backgroundImage: Photo.css(photoKey, 800)
-											backgroundPosition: '50% 50%'
-											backgroundRepeat: 'no-repeat'
-											backgroundSize: 'contain'
-											paddingTop: 0
-											height: '100%'
+											padding: 0
+											backgroundColor: '#444'
+										Dom.div !->
+											Dom.style
+												width: '100%'
+												backgroundImage: Photo.css(photoKey, 800)
+												backgroundPosition: '50% 50%'
+												backgroundRepeat: 'no-repeat'
+												backgroundSize: 'contain'
+												paddingTop: 0
+												height: '100%'
+					else if msg.get('photo') is ''
+						# photo removed (no photo and no text)
+						Dom.div !->
+							Dom.style
+								Box: 'center middle'
+								textAlign: 'center'
+								color: '#fff'
+								margin: '2px 0'
+								backgroundColor: '#ccc'
+								minWidth: '104px'
+								padding: '8px'
+							Dom.text tr "Photo"
+							Dom.br()
+							Dom.text tr "removed"
 
 					Dom.div !->
 						Dom.style
@@ -297,4 +340,3 @@ renderDots = !->
 			Dom.text dots[2-i.get()]
 	Obs.interval 500, !->
 		i.modify (v) -> (v+1)%dots.length
-

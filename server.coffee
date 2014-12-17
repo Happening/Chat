@@ -2,6 +2,7 @@ Db = require 'db'
 Event = require 'event'
 Plugin = require 'plugin'
 Subscription = require 'subscription'
+Photo = require 'photo'
 {tr} = require 'i18n'
 
 exports.client_typingSub = (cb) !->
@@ -32,3 +33,9 @@ post = (msg, text, unit=tr('msg')) !->
 exports.onPhoto = (info) !->
 	post {photo: info.key}, tr('photo'), tr('photo')
 
+exports.client_removePhoto = (num) !->
+	msg = Db.shared.ref 0|num/100, num%100
+	return if !msg.get('photo') or (msg.get('by') isnt Plugin.userId() and !Plugin.userIsAdmin())
+
+	Photo.remove msg.get('photo')
+	msg.set 'photo', ''
