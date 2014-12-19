@@ -258,6 +258,7 @@ exports.render = !->
 		send = !->
 			log 'send', inputE.value(), inputE
 			if msg = inputE.value()
+				msg = Form.smileyToEmoji msg
 				Server.sync 'msg', msg, !->
 					id = shared.modify "maxId", (v) -> (v||0)+1
 					shared.set 0|id/100, id%100,
