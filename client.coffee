@@ -10,25 +10,40 @@ Plugin = require 'plugin'
 Server = require 'server'
 Time = require 'time'
 Ui = require 'ui'
+try
+	Event = require 'event'
 {tr} = require 'i18n'
 
+shared = Db.shared
+myUserId = Plugin.userId()
+
+if Plugin.groupId() < 0
+	contactUserId = 3-myUserId
+
 exports.render = !->
+
+	log 'render'
+
+	isRendered = false
+		# False when first-render, true for granular redraws
+	
 	Dom.style
 		fontSize: '90%'
 
-	shared = Db.shared
-	myUserId = Plugin.userId()
-
-	if fv = Page.state.get('firstV')
-		firstV = Obs.create(fv)
-	else
-		msgAmount = Math.max(Math.round(Dom.viewport.peek('height')/50), 10)
-			# show at least 10 messages, but more when we have a large vertical viewport
-		firstV = Obs.create Math.max(1, (shared.peek('maxId')||0)-msgAmount)
+	unreadCount = Obs.peek -> if Event then Event.unread() else 0
+	firstO = Page.state.ref('first')
+	maxIdO = shared.ref('maxId')
+	if !firstO.peek()
+		heightCount = Math.round(Dom.viewport.peek('height')/50) + 5
+		msgCount = Math.max(10, (if unreadCount > 100 then 0 else unreadCount), heightCount)
+			# if more than 100 unseen, don't even try
+		log 'unread=', unreadCount, 'height=', heightCount, 'msgCount=', msgCount
+		firstO.set Math.max(1, (maxIdO.peek()||0)-msgCount)
 
 	screenE = Dom.get()
 	Dom.div !->
-		if firstV.get()==1
+		if firstO.get()==1
+			# todo: render WhatsApp invite
 			Dom.style display: 'none'
 			return
 		Dom.style
@@ -36,9 +51,8 @@ exports.render = !->
 			textAlign: 'center'
 
 		Ui.button tr("Earlier messages"), !->
-			nfv = firstV.modify (v) -> Math.max(1, (v||0)-10)
-			Page.state.set('firstV', nfv)
-			if !Plugin.agent().ios # on ios, this results in content-not-rendered bug
+			nfv = firstO.modify (v) -> Math.max(1, (v||0)-10)
+			if true #!Plugin.agent().ios # on ios, this results in content-not-rendered bug
 				prevHeight = screenE.prop('scrollHeight')
 				Obs.onStable !->
 					delta = screenE.prop('scrollHeight') - prevHeight
@@ -50,18 +64,36 @@ exports.render = !->
 		# new messages are inserted. After insertion, a similar observer uses the
 		# flag to scroll down
 	Obs.observe !->
-		shared.get('maxId')
+		maxIdO.get()
 		wasNearBottom = Page.nearBottom()
 
-	Loglist.render firstV, shared.ref("maxId"), (num) !->
+	log 'firstO=', firstO.peek(), 'maxO=', maxIdO.peek()
+
+	Loglist.render firstO, maxIdO, (num) !->
+		#log 'render', num
+		if !isRendered and num is maxIdO.peek() - unreadCount + 1
+			Dom.div !->
+				Dom.style
+					margin: '8px -8px'
+					textAlign: 'center'
+					padding: '4px 4px 2px 4px'
+					background: '#f5f5f5'
+					color: '#5b0'
+					textShadow: '0 1px 0 #fff'
+					textTransform: 'uppercase'
+					fontWeight: 'bold'
+					borderBottom: '1px solid #fdfdfd'
+					borderTop: '1px solid #d4d4d4'
+					fontSize: '75%'
+				Dom.text tr("▼ New messages")
+
 		Dom.div !->
 			msg = shared.ref(0|num/100, num%100)
-			if !msg
+			if !msg.isHash()
 				return
-			dbg.msg = msg
 
-			memberId = msg.get('by')
-			name = Plugin.userName memberId
+			byUserId = msg.get('by')
+			name = Plugin.userName byUserId
 
 			type = msg.get('type')
 			if type in [10,11,12]
@@ -69,10 +101,11 @@ exports.render = !->
 					textAlign: 'center'
 					padding: '4px'
 
-				if memberId is myUserId
+				if byUserId is myUserId
 					name = tr("You")
 
 				Dom.div !->
+					Dom.cls 'msg'
 					Dom.style
 						display: 'inline-block'
 						padding: '4px 6px'
@@ -85,6 +118,7 @@ exports.render = !->
 							tr("%1 joined", name)
 						else
 							tr("%1 left", name)
+					Dom.onTap (!-> Plugin.userInfo(byUserId))
 
 			else
 				# normal message
@@ -92,14 +126,14 @@ exports.render = !->
 					position: 'relative'
 					margin: '4px -4px'
 
-				if memberId is myUserId
+				if byUserId is myUserId
 					Dom.style textAlign: 'right'
 				else
 					Dom.style textAlign: 'left'
 				
 				text = msg.get('text')
-				Ui.avatar Plugin.userAvatar(memberId), !->
-					if memberId is myUserId
+				Ui.avatar Plugin.userAvatar(byUserId), !->
+					if byUserId is myUserId
 						Dom.style right: '4px'
 					else
 						Dom.style left: '4px'
@@ -107,8 +141,10 @@ exports.render = !->
 						position: 'absolute'
 						top: '3px'
 						margin: 0
+				, null, (!-> Plugin.userInfo(byUserId))
 	
 				Dom.div !->
+					Dom.cls 'msg'
 					Dom.style
 						display: 'inline-block'
 						margin: '2px 50px'
@@ -119,11 +155,6 @@ exports.render = !->
 						textAlign: 'left'
 						background: '#fff'
 						_userSelect: 'text'
-
-						#Dom.onTap
-						#	longTap: !->
-						#		Form.toClipboard text
-						#		require('toast').show tr("Copied to clipboard")
 
 					if text
 						Dom.userText text
@@ -140,43 +171,8 @@ exports.render = !->
 								Dom.style width: '100%', height: '100%'
 								Dom.onTap !->
 									Page.nav !->
-										Page.setTitle tr("Photo")
-										Page.setSubTitle tr("added by %1", name)
-										opts = []
-										if Photo.share
-											opts.push
-												label: tr('Share')
-												icon: 'share'
-												action: !-> Photo.share photoKey
-										if Photo.download
-											opts.push
-												label: tr('Download')
-												icon: 'boxdown'
-												action: !-> Photo.download photoKey
-										if memberId is Plugin.userId() or Plugin.userIsAdmin()
-											opts.push
-												label: tr('Remove')
-												icon: 'trash'
-												action: !->
-													require('modal').confirm null, tr("Remove photo?"), !->
-														Server.sync 'removePhoto', num, !->
-															msg.set('photo', '')
-														Page.back()
-
-										Page.setActions opts
-
-										Dom.style
-											padding: 0
-											backgroundColor: '#444'
-										Dom.div !->
-											Dom.style
-												width: '100%'
-												backgroundImage: Photo.css(photoKey, 800)
-												backgroundPosition: '50% 50%'
-												backgroundRepeat: 'no-repeat'
-												backgroundSize: 'contain'
-												paddingTop: 0
-												height: '100%'
+										renderPhoto num, msg
+										
 					else if msg.get('photo') is ''
 						# photo removed (no photo and no text)
 						Dom.div !->
@@ -188,9 +184,9 @@ exports.render = !->
 								backgroundColor: '#ccc'
 								minWidth: '104px'
 								padding: '8px'
-							Dom.text tr "Photo"
+							Dom.text tr("Photo")
 							Dom.br()
-							Dom.text tr "removed"
+							Dom.text tr("removed")
 
 					Dom.div !->
 						Dom.style
@@ -200,42 +196,52 @@ exports.render = !->
 							padding: '2px 0 0'
 						Dom.text name
 						Dom.text " • "
-						if  time = msg.get('time')
+						if time = msg.get('time')
 							Time.deltaText time, 'short'
 						else
 							Dom.text tr("sending")
 							renderDots()
 
+					Dom.onTap !->
+						messageModal(num, msg)
 
 	typingSub = Obs.create {}
 	Server.send 'typingSub', (delta) !-> typingSub.patch delta
 	Obs.observe !->
+	Dom.div !->
 		wasNearBottom2 = Page.nearBottom()
 		users = []
 		for userId of typingSub.get()
-			if +userId isnt Plugin.userId()
+			if +userId isnt myUserId
 				users.push Plugin.userName(userId)
-		if users.length
-			Dom.div !->
-				Dom.style
-					fontSize: '80%'
-					padding: '4px 0'
-					color: '#999'
-				Dom.text users.join(' & ')
-				if users.length is 1
-					Dom.text tr(" is typing")
-				else
-					Dom.text tr(" are typing")
-				renderDots()
-			if wasNearBottom2
-				Page.scroll 'down', true
+				
+		Dom.style
+			fontSize: '80%'
+			padding: '4px 0'
+			color: '#999'
+			height: '16px' # reserve fixed space so redrawing does not trigger new scroll-down
+			display: if users.length then '' else 'none'
+
+		if l=users.length
+			Dom.text users.join(' & ')
+			Dom.text if l>1 then tr(" are typing") else tr(" is typing")
+			renderDots()
+		if wasNearBottom2
+			Page.scroll 'down', true
 
 	Obs.observe !->
-		mid = shared.get('maxId')
-		if !isRendered || wasNearBottom
-			Page.scroll 'down', isRendered # no scroll-animation on first render
-		else if +shared.peek(0|mid/100, mid%100, 'by') != Plugin.userId()
+		maxIdO.get()
+		if !isRendered
+			if unreadCount < 10
+				Page.scroll 'down' # no scroll-animation on first render
+
+		else if wasNearBottom
+			Page.scroll 'down', true
+
+		else
+			#if +shared.peek(0|mid/100, mid%100, 'by') != Plugin.userId()
 			require('toast').show tr("Scroll for new message")
+
 
 	###
 	Dom._listen Dom._get().parentNode, 'scroll', !->
@@ -260,7 +266,7 @@ exports.render = !->
 			if msg = inputE.value()
 				msg = Form.smileyToEmoji msg
 				Server.sync 'msg', msg, !->
-					id = shared.modify "maxId", (v) -> (v||0)+1
+					id = maxIdO.modify (v) -> (v||0)+1
 					shared.set 0|id/100, id%100,
 						time: 0
 						by: Plugin.userId()
@@ -328,16 +334,129 @@ exports.render = !->
 							Photo.pick()
 						else
 							send()
+	
+renderPhoto = (num, msg) !->
+
+	byUserId = msg.get('by')
+	photoKey = msg.get('photo')
+
+	Page.setTitle tr("Photo")
+	Page.setSubTitle tr("added by %1", Plugin.userName(byUserId))
+	opts = []
+	if Photo.share
+		opts.push
+			label: tr("Share")
+			icon: 'share'
+			action: !-> Photo.share photoKey
+	if Photo.download
+		opts.push
+			label: tr("Download")
+			icon: 'boxdown'
+			action: !-> Photo.download photoKey
+	if byUserId is myUserId or Plugin.userIsAdmin()
+		opts.push
+			label: tr("Remove")
+			icon: 'trash'
+			action: !->
+				require('modal').confirm null, tr("Remove photo?"), !->
+					Server.sync 'removePhoto', num, !->
+						msg.set('photo', '')
+					Page.back()
+	Page.setActions opts
+
+	Dom.style
+		padding: 0
+		backgroundColor: '#444'
+	#Dom.img !->
+	#	Dom.prop src: Photo.url(photoKey, 800)
+		
+	(require 'photoview').render
+		key: photoKey
+
+messageModal = (num, msg) !->
+	time = msg.get('time')
+	return if !time
+
+	Modal = require('modal')
+	byUserId = msg.get('by')
+
+	Modal.show false, !->
+		Dom.div !->
+			Dom.style
+				margin: '-12px'
+			Ui.item !->
+				Ui.avatar Plugin.userAvatar(byUserId)
+				Dom.div !->
+					Dom.text tr("Sent by %1", Plugin.userName(byUserId))
+					Dom.div !->
+						Dom.style fontSize: '80%'
+						Dom.text (new Date(time*1000)+'').replace(/\s[\S]+\s[\S]+$/, '')
+				Dom.onTap !->
+					Plugin.userInfo byUserId
+
+			if !!Form.clipboard and clipboard = Form.clipboard()
+				Ui.item !->
+					Dom.text tr("Copy text")
+					Dom.onTap !->
+						clipboard(msg.get('text'))
+						require('toast').show tr("Copied to clipboard")
+						Modal.remove()
+
+			return if contactUserId and byUserId is contactUserId
+
+			read = Obs.create false
+			Server.send 'getRead', num, read.func()
+			Ui.item !->
+				if read.get() is false
+					Dom.div !->
+						Dom.style Flex: 1
+						Dom.text tr("Seen by")
+					Ui.spinner 24
+
+				else if contactUserId
+					if read.get(contactUserId)
+						Dom.text tr("Seen by %1", Plugin.userName(contactUserId))
+					else
+						Dom.text tr("Not seen by %1", Plugin.userName(contactUserId))
+
+				else
+					count = read.count().get()
+					if count >= Plugin.users.count().get()-1
+						Dom.text tr("Seen by all members")
+					else
+						Dom.text tr("Seen by %1 member|s", count)
+
+					Dom.onTap !->
+						Modal.show tr("Seen by"), !->
+							Dom.div !->
+								Dom.style
+									margin: '-12px'
+									maxHeight: '60%'
+									minWidth: '15em'
+								Dom.overflow()
+								read.iterate (r) !->
+									Ui.item !->
+										id = r.key()
+										Ui.avatar Plugin.userAvatar(id)
+										Dom.text Plugin.userName(id)
+										Dom.onTap !->
+											Plugin.userInfo id
+								, (r) -> +r.key()
+
+	, undefined, ['ok', tr("Close")]
 
 
 dots = ['.', '..', '...']
 renderDots = !->
-	i = Obs.create 0
+	i = 0
 	Obs.observe !->
-		Dom.text dots[i.get()]
+		i = (i+1)%dots.length
+		Dom.text dots[i]
 		Dom.span !->
-			Dom.style
-				color: 'transparent'
-			Dom.text dots[2-i.get()]
-	Obs.interval 500, !->
-		i.modify (v) -> (v+1)%dots.length
+			Dom.style color: 'transparent'
+			Dom.text dots[2-i]
+		Obs.delay 500
+
+Dom.css
+	'.msg.tap':
+		background: '#ddd !important'

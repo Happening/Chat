@@ -2,4 +2,4 @@ name: Chat
 description: Converse among happening members.
 icon: chat2
 api: 2
-store: 1000
+store: 800
