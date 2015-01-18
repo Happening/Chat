@@ -1,33 +1,17 @@
 Db = require 'db'
 Event = require 'event'
+Photo = require 'photo'
 Plugin = require 'plugin'
 Subscription = require 'subscription'
-Photo = require 'photo'
 {tr} = require 'i18n'
 
-exports.client_typingSub = (cb) !->
-	cb.subscribe 'typing'
-
-exports.client_typing = (typing) !->
-	patch = {}
-	patch[Plugin.userId()] = if typing then true else null
-	Subscription.push 'typing', patch
-
-exports.client_msg = (text) !->
+exports.client_msg = exports.client_chat = (text) !->
 	post {text}, text
 
-exports.client_getRead = (id, cb) !->
-	maxId = Db.shared.get('maxId')
-	byUserId = Db.shared.get 0|id/100, id%100, 'by'
+exports.onPhoto = (info) !->
+	post {photo: info.key}, tr("(photo)"), 'photo'
 
-	read = {}
-	for userId in Plugin.userIds()
-		continue if userId is byUserId
-		unread = Event.getUnread(userId)
-		read[userId] = true if maxId - unread >= id
-	cb.reply read
-
-post = (msg, text, unit=tr('msg')) !->
+post = (msg, text, unit='msg') !->
 	msg.time = 0|(new Date()/1000)
 	msg.by = Plugin.userId()
 
@@ -52,16 +36,32 @@ exports.onJoin = onJoin = (userId, left = false) !->
 
 	if !left
 		Event.create
-			unit: 'other'
+			unit: 'join'
 			text: "#{Plugin.userName(userId)} joined"
 			ticker: "#{Plugin.userName(userId)} joined '#{Plugin.groupName()}'"
 			read: [userId]
 
 exports.onLeave = (userId) !->
 	onJoin userId, true
+	
+exports.client_typingSub = (cb) !->
+	cb.subscribe 'typing'
 
-exports.onPhoto = (info) !->
-	post {photo: info.key}, tr('photo'), tr('photo')
+exports.client_typing = (typing) !->
+	patch = {}
+	patch[Plugin.userId()] = if typing then true else null
+	Subscription.push 'typing', patch
+
+exports.client_getRead = (id, cb) !->
+	maxId = Db.shared.get('maxId')
+	byUserId = Db.shared.get 0|id/100, id%100, 'by'
+
+	read = {}
+	for userId in Plugin.userIds()
+		continue if userId is byUserId
+		unread = Event.getUnread(userId)
+		read[userId] = true if maxId - unread >= id
+	cb.reply read
 
 exports.client_removePhoto = (num) !->
 	msg = Db.shared.ref 0|num/100, num%100
