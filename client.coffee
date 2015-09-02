@@ -17,14 +17,13 @@ if Plugin.groupId() < 0
 	contactUserId = 3-myUserId
 
 exports.render = !->
-	log 'render'
-	
+
 	Dom.style
 		fontSize: '90%'
 
 	Chat.renderMessages
 		newCount: Obs.peek -> Event.unread() || 0
-		content: (msg, num) !->
+		content: messageContent = (msg, num) !->
 			return if !msg.isHash()
 			byUserId = msg.get('by')
 			name = Plugin.userName byUserId
@@ -52,20 +51,28 @@ exports.render = !->
 				Dom.cls 'chat-msg'
 				if byUserId is myUserId
 					Dom.cls 'chat-me'
-				
-				Ui.avatar Plugin.userAvatar(byUserId), undefined, undefined, !->
-					Plugin.userInfo(byUserId)
-	
+
+				Ui.avatar Plugin.userAvatar(byUserId),
+					onTap: !->
+						Plugin.userInfo(byUserId)
+
 				Dom.div !->
 					Dom.cls 'chat-content'
-					photoKey = msg.get('photo')
-					if photoKey
+					if  (photoUpload = msg.get("photoUpload"))
+						Dom.div !->
+							Dom.style
+								background: "url(#{msg.get('thumb')}) 50% 50% no-repeat"
+								backgroundSize: 'cover'
+								width: "90px"
+								height: "70px"
+								padding: "40px 0 0 60px"
+							Ui.spinner 30
+					else if (photoKey = msg.get('photo'))
 						Dom.img !->
 							Dom.prop 'src', Photo.url(photoKey, 200)
 							Dom.onTap !->
 								Page.nav !->
 									renderPhoto msg, num
-										
 					else if photoKey is ''
 						Dom.div !->
 							Dom.cls 'chat-nophoto'
@@ -86,16 +93,24 @@ exports.render = !->
 							Dom.text tr("sending")
 							Ui.dots()
 
-					Dom.onTap !->
-						msgModal msg, num
+					if !photoUpload
+						Dom.onTap !->
+							msgModal msg, num
+
+	Obs.observe !->
+		Photo.uploads.iterate (newPhoto) !-> # Previews of image uploads
+			Page.scroll 'down', true # Scroll to the preview of the image that is getting uploaded
+			preview = Obs.create newPhoto.get()
+			preview.set "photoUpload", true
+			preview.set "by", Plugin.userId()
+			messageContent(preview)
 
 	typingSub = Obs.create {}
 	Server.send 'typingSub', (delta) !-> typingSub.patch delta
-	Obs.observe !->
 	Dom.div !->
 		wasNearBottom = Page.nearBottom()
 		users = (Plugin.userName(userId) for userId of typingSub.get() when +userId isnt myUserId)
-		
+
 		Dom.style
 			fontSize: '80%'
 			padding: '4px 0'
@@ -115,42 +130,55 @@ exports.render = !->
 			typing: true
 
 renderPhoto = (msg, num) !->
-
-	byUserId = msg.get('by')
-	photoKey = msg.get('photo')
-
-	Page.setTitle tr("Photo")
-	Page.setSubTitle tr("added by %1", Plugin.userName(byUserId))
-	opts = []
-	if Photo.share
-		opts.push
-			label: tr("Share")
-			icon: 'share'
-			action: !-> Photo.share photoKey
-	if Photo.download
-		opts.push
-			label: tr("Download")
-			icon: 'boxdown'
-			action: !-> Photo.download photoKey
-	if byUserId is myUserId or Plugin.userIsAdmin()
-		opts.push
-			label: tr("Remove")
-			icon: 'trash'
-			action: !->
-				require('modal').confirm null, tr("Remove photo?"), !->
-					Server.sync 'removePhoto', num, !->
-						msg.set('photo', '')
-					Page.back()
-	Page.setActions opts
-
 	Dom.style
 		padding: 0
-		backgroundColor: '#444'
-	#Dom.img !->
-	#	Dom.prop src: Photo.url(photoKey, 800)
-		
+
+	content = (identifier) !->
+		message = Db.shared.ref(0|identifier/100, identifier%100)
+		return if !message?
+		byUserId = message.get('by')
+		photoKey = message.get('photo')
+		return if !byUserId? or !photoKey?
+		Page.setTitle tr("Posted by %1", Plugin.userName(byUserId))
+		opts = []
+		if Photo.share
+			opts.push
+				label: tr("Share")
+				icon: 'share'
+				action: !-> Photo.share photoKey
+		if Photo.download
+			opts.push
+				label: tr("Download")
+				icon: 'boxdown'
+				action: !-> Photo.download photoKey
+		if byUserId is myUserId or Plugin.userIsAdmin()
+			opts.push
+				label: tr("Remove")
+				icon: 'trash'
+				action: !->
+					require('modal').confirm null, tr("Remove photo?"), !->
+						Server.sync 'removePhoto', identifier, !->
+							message.set('photo', '')
+						Page.back()
+		Page.setActions opts
+
 	(require 'photoview').render
-		key: photoKey
+		current: num
+		getNeighbourIds: (id) ->
+			max = Db.shared.peek('maxId')||0
+			right = parseInt(id)-1
+			while !((rightValue = Db.shared.peek(0|right/100, right%100, "photo"))?) && right > 0
+				right--
+			left = parseInt(id)+1
+			while !((leftValue = Db.shared.peek(0|left/100, left%100, "photo"))?) && left <= max
+				left++
+			left = undefined if !leftValue? or leftValue.length is 0
+			right = undefined if !rightValue? or rightValue.length is 0
+			[left,right]
+		idToPhotoKey: (id) ->
+			Db.shared.get 0|id/100, id%100, 'photo'
+		fullHeight: true
+		content: content
 
 msgModal = (msg, num) !->
 	time = msg.get('time')
