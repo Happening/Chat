@@ -23,7 +23,7 @@ exports.render = !->
 		fontSize: '90%'
 
 	Chat.renderMessages
-		newCount: Obs.peek -> Event.unread() || 0
+		newCount: Obs.peek -> Event.getUnread() || 0
 		content: (msg, num) !->
 			return if !msg.isHash()
 			byUserId = msg.get('by')
@@ -53,19 +53,27 @@ exports.render = !->
 				if byUserId is myUserId
 					Dom.cls 'chat-me'
 				
-				Ui.avatar Plugin.userAvatar(byUserId), undefined, undefined, !->
-					Plugin.userInfo(byUserId)
+				Ui.avatar Plugin.userAvatar(byUserId),
+					style: margin: '0 3px'
+					onTap: !-> Plugin.userInfo(byUserId)
 	
 				Dom.div !->
 					Dom.cls 'chat-content'
 					photoKey = msg.get('photo')
 					if photoKey
-						Dom.img !->
-							Dom.prop 'src', Photo.url(photoKey, 200)
+						Dom.div !->
+							Dom.cls 'img'
+							Dom.style
+								width: '150px' #
+								height: '150px' #
+								margin: '2px 0' # these are also in main css, but that might not have updated yet.. (wait for major update to remove these)
+								backgroundImage: "url("+Photo.url(photoKey, 400)+")"
+								backgroundSize: 'cover'
+								backgroundPosition: '50% 50%'
 							Dom.onTap !->
 								Page.nav !->
 									renderPhoto msg, num
-										
+
 					else if photoKey is ''
 						Dom.div !->
 							Dom.cls 'chat-nophoto'
@@ -91,7 +99,6 @@ exports.render = !->
 
 	typingSub = Obs.create {}
 	Server.send 'typingSub', (delta) !-> typingSub.patch delta
-	Obs.observe !->
 	Dom.div !->
 		wasNearBottom = Page.nearBottom()
 		users = (Plugin.userName(userId) for userId of typingSub.get() when +userId isnt myUserId)
@@ -113,6 +120,7 @@ exports.render = !->
 	Page.setFooter !->
 		Chat.renderInput
 			typing: true
+			placeholder: tr("Send a message...")
 
 renderPhoto = (msg, num) !->
 
@@ -217,7 +225,7 @@ msgModal = (msg, num) !->
 									Ui.item !->
 										id = r.key()
 										Ui.avatar Plugin.userAvatar(id)
-										Dom.text Plugin.userName(id)
+										Dom.div Plugin.userName(id)
 										Dom.onTap !->
 											Plugin.userInfo id
 								, (r) -> +r.key()
@@ -226,5 +234,7 @@ msgModal = (msg, num) !->
 
 
 Dom.css
-	'.msg.tap':
+	'.chat-msg .chat-content.tap':
 		background: '#ddd !important'
+	'.chat-msg.chat-me .chat-content.tap':
+		background: '#D6DDE4 !important'

@@ -1,7 +1,7 @@
-Example
-=======
+Chat
+====
 
-The standard chat plugin Happening.
+The standard chat plugin for Happening.
 
 In case you don't know what this is about: Happening is a group app for iOS and Android, that allows you to create your own plugins in minutes. To get started signup at: https://develop.happening.im
 

@@ -9,9 +9,9 @@ exports.client_msg = exports.client_chat = (text) !->
 	post {text}, text
 
 exports.onPhoto = (info) !->
-	post {photo: info.key}, tr("(photo)"), 'photo'
+	post {photo: info.key}, tr("(photo)")
 
-post = (msg, text, unit='msg') !->
+post = (msg, text) !->
 	msg.time = 0|(new Date()/1000)
 	msg.by = Plugin.userId()
 
@@ -21,9 +21,9 @@ post = (msg, text, unit='msg') !->
 
 	name = Plugin.userName()
 	Event.create
-		unit: unit
 		text: if Plugin.groupId() < 0 then text else "#{name}: #{text}"
-		read: [Plugin.userId()]
+		senderText: "You: #{text}" if Plugin.groupId() > 0
+		sender: Plugin.userId()
 
 exports.onJoin = onJoin = (userId, left = false) !->
 	msg =
@@ -36,10 +36,10 @@ exports.onJoin = onJoin = (userId, left = false) !->
 
 	if !left
 		Event.create
-			unit: 'join'
 			text: "#{Plugin.userName(userId)} joined"
+			senderText: "You joined"
 			ticker: "#{Plugin.userName(userId)} joined '#{Plugin.groupName()}'"
-			read: [userId]
+			sender: userId
 
 exports.onLeave = (userId) !->
 	onJoin userId, true
