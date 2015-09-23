@@ -182,7 +182,7 @@ renderPhoto = (msg, num) !->
 				left++
 			left = undefined if !leftValue? or leftValue.length is 0
 			right = undefined if !rightValue? or rightValue.length is 0
-			[left,right]
+			[right,left]
 		idToPhotoKey: (id) ->
 			Db.shared.get 0|id/100, id%100, 'photo'
 		fullHeight: true
